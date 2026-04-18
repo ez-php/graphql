@@ -1,6 +1,6 @@
 {
     "name": "ez-php/graphql",
-    "version": "1.5.1",
+    "version": "1.6.0",
     "description": "GraphQL module for the ez-php framework — schema builder, query executor, and HTTP endpoint via webonyx/graphql-php",
     "type": "library",
     "license": "MIT",
