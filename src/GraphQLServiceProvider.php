@@ -30,8 +30,10 @@ use GraphQL\Type\Schema;
  *
  * Configuration keys (config/graphql.php or environment):
  *
- *   graphql.endpoint   — URI for the GraphQL endpoint (default: '/graphql')
- *   app.debug          — bool, enables detailed error output in responses
+ *   graphql.endpoint              — URI for the GraphQL endpoint (default: '/graphql')
+ *   graphql.max_query_depth       — int, max nesting depth (default: 15; 0 disables)
+ *   graphql.max_query_complexity  — int, max complexity score (default: 0 = disabled)
+ *   app.debug                     — bool, enables detailed error output in responses
  *
  * @package EzPhp\GraphQL
  */
@@ -48,16 +50,25 @@ final class GraphQLServiceProvider extends ServiceProvider
             $schema = $app->make(Schema::class);
 
             $debug = false;
+            $maxDepth = GraphQLExecutor::DEFAULT_MAX_QUERY_DEPTH;
+            $maxComplexity = 0;
 
             try {
                 $config = $app->make(ConfigInterface::class);
-                $raw = $config->get('app.debug', false);
-                $debug = is_bool($raw) ? $raw : false;
+
+                $rawDebug = $config->get('app.debug', false);
+                $debug = is_bool($rawDebug) ? $rawDebug : false;
+
+                $rawDepth = $config->get('graphql.max_query_depth', GraphQLExecutor::DEFAULT_MAX_QUERY_DEPTH);
+                $maxDepth = is_int($rawDepth) ? $rawDepth : GraphQLExecutor::DEFAULT_MAX_QUERY_DEPTH;
+
+                $rawComplexity = $config->get('graphql.max_query_complexity', 0);
+                $maxComplexity = is_int($rawComplexity) ? $rawComplexity : 0;
             } catch (\Throwable) {
-                // Config not bound — default to non-debug mode.
+                // Config not bound — fall back to the constructor defaults.
             }
 
-            return new GraphQLExecutor($schema, $debug);
+            return new GraphQLExecutor($schema, $debug, $maxDepth, $maxComplexity);
         });
     }
 

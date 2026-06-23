@@ -105,6 +105,89 @@ final class GraphQLExecutorTest extends GraphQLTestCase
         self::assertArrayHasKey('errors', $result);
     }
 
+    public function testExecuteRejectsQueryExceedingMaxDepth(): void
+    {
+        $executor = new GraphQLExecutor($this->makeNestedSchema(), maxQueryDepth: 2);
+
+        // root -> child -> child -> child -> value (well beyond depth 2)
+        $result = $executor->execute('{ root { child { child { child { value } } } } }');
+
+        // Validation-rule failures surface as GraphQL errors (HTTP 200), not exceptions.
+        self::assertArrayHasKey('errors', $result);
+        self::assertIsArray($result['errors']);
+        self::assertNotEmpty($result['errors']);
+        self::assertArrayNotHasKey('data', $result);
+    }
+
+    public function testExecuteAllowsDeepQueryWhenDepthLimitDisabled(): void
+    {
+        $executor = new GraphQLExecutor($this->makeNestedSchema(), maxQueryDepth: 0);
+
+        $result = $executor->execute('{ root { child { child { child { value } } } } }');
+
+        self::assertArrayNotHasKey('errors', $result);
+        self::assertArrayHasKey('data', $result);
+    }
+
+    public function testDefaultDepthLimitAllowsTypicalQuery(): void
+    {
+        // No depth argument → DEFAULT_MAX_QUERY_DEPTH applies and a normal query still works.
+        $executor = new GraphQLExecutor($this->makeHelloSchema());
+
+        $result = $executor->execute('{ hello }');
+
+        self::assertSame(['data' => ['hello' => 'world']], $result);
+    }
+
+    public function testExecuteRejectsQueryExceedingMaxComplexity(): void
+    {
+        $executor = new GraphQLExecutor($this->makeNestedSchema(), maxQueryComplexity: 1);
+
+        // "root" + "value" = complexity 2, above the limit of 1.
+        $result = $executor->execute('{ root { value } }');
+
+        self::assertArrayHasKey('errors', $result);
+        self::assertIsArray($result['errors']);
+        self::assertNotEmpty($result['errors']);
+    }
+
+    /**
+     * A self-referential schema: `root` returns a `Node`, and each `Node` has a
+     * scalar `value` and a `child` of the same type — allowing arbitrarily deep
+     * queries for depth/complexity testing.
+     */
+    private function makeNestedSchema(): \GraphQL\Type\Schema
+    {
+        $node = null;
+        $node = new \GraphQL\Type\Definition\ObjectType([
+            'name' => 'Node',
+            'fields' => static function () use (&$node): array {
+                return [
+                    'value' => [
+                        'type' => \GraphQL\Type\Definition\Type::string(),
+                        'resolve' => static fn (): string => 'leaf',
+                    ],
+                    'child' => [
+                        'type' => $node,
+                        'resolve' => static fn (): array => [],
+                    ],
+                ];
+            },
+        ]);
+
+        return new \GraphQL\Type\Schema([
+            'query' => new \GraphQL\Type\Definition\ObjectType([
+                'name' => 'Query',
+                'fields' => [
+                    'root' => [
+                        'type' => $node,
+                        'resolve' => static fn (): array => [],
+                    ],
+                ],
+            ]),
+        ]);
+    }
+
     private function makeSchemaWithThrowingResolver(): \GraphQL\Type\Schema
     {
         return new \GraphQL\Type\Schema([
