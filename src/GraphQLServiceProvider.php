@@ -32,7 +32,7 @@ use GraphQL\Type\Schema;
  *
  *   graphql.endpoint              — URI for the GraphQL endpoint (default: '/graphql')
  *   graphql.max_query_depth       — int, max nesting depth (default: 15; 0 disables)
- *   graphql.max_query_complexity  — int, max complexity score (default: 0 = disabled)
+ *   graphql.max_query_complexity  — int, max complexity score (default: 200; 0 disables)
  *   app.debug                     — bool, enables detailed error output in responses
  *
  * @package EzPhp\GraphQL
@@ -51,7 +51,7 @@ final class GraphQLServiceProvider extends ServiceProvider
 
             $debug = false;
             $maxDepth = GraphQLExecutor::DEFAULT_MAX_QUERY_DEPTH;
-            $maxComplexity = 0;
+            $maxComplexity = GraphQLExecutor::DEFAULT_MAX_QUERY_COMPLEXITY;
 
             try {
                 $config = $app->make(ConfigInterface::class);
@@ -62,8 +62,11 @@ final class GraphQLServiceProvider extends ServiceProvider
                 $rawDepth = $config->get('graphql.max_query_depth', GraphQLExecutor::DEFAULT_MAX_QUERY_DEPTH);
                 $maxDepth = is_int($rawDepth) ? $rawDepth : GraphQLExecutor::DEFAULT_MAX_QUERY_DEPTH;
 
-                $rawComplexity = $config->get('graphql.max_query_complexity', 0);
-                $maxComplexity = is_int($rawComplexity) ? $rawComplexity : 0;
+                $rawComplexity = $config->get(
+                    'graphql.max_query_complexity',
+                    GraphQLExecutor::DEFAULT_MAX_QUERY_COMPLEXITY,
+                );
+                $maxComplexity = is_int($rawComplexity) ? $rawComplexity : GraphQLExecutor::DEFAULT_MAX_QUERY_COMPLEXITY;
             } catch (\Throwable) {
                 // Config not bound — fall back to the constructor defaults.
             }

@@ -34,16 +34,29 @@ final class GraphQLExecutor
     public const int DEFAULT_MAX_QUERY_DEPTH = 15;
 
     /**
+     * Default maximum query complexity score. Depth alone does not stop a
+     * shallow query with hundreds of aliased/duplicated fields (e.g.
+     * `a1: field a2: field a3: field ...`), which can still be arbitrarily
+     * expensive to resolve — complexity limiting is therefore enabled by
+     * default alongside depth limiting, not opt-in. Webonyx's default cost
+     * is 1 per field, so 200 permits realistically-sized queries (tens of
+     * fields across a few levels) while rejecting pathological field
+     * multiplication. Tune via `graphql.max_query_complexity` for schemas
+     * with custom per-field complexity weights.
+     */
+    public const int DEFAULT_MAX_QUERY_COMPLEXITY = 200;
+
+    /**
      * @param Schema $schema             The compiled GraphQL schema.
      * @param bool   $debug              When true, includes debug messages and stack traces in error output.
      * @param int    $maxQueryDepth      Maximum allowed query nesting depth; `0` disables the limit.
-     * @param int    $maxQueryComplexity Maximum allowed query complexity score; `0` (default) disables the limit.
+     * @param int    $maxQueryComplexity Maximum allowed query complexity score; `0` disables the limit.
      */
     public function __construct(
         private readonly Schema $schema,
         private readonly bool $debug = false,
         private readonly int $maxQueryDepth = self::DEFAULT_MAX_QUERY_DEPTH,
-        private readonly int $maxQueryComplexity = 0,
+        private readonly int $maxQueryComplexity = self::DEFAULT_MAX_QUERY_COMPLEXITY,
     ) {
     }
 
