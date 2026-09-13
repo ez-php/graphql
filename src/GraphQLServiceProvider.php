@@ -53,7 +53,7 @@ final class GraphQLServiceProvider extends ServiceProvider
             $maxDepth = GraphQLExecutor::DEFAULT_MAX_QUERY_DEPTH;
             $maxComplexity = GraphQLExecutor::DEFAULT_MAX_QUERY_COMPLEXITY;
 
-            try {
+            if ($app->has(ConfigInterface::class)) {
                 $config = $app->make(ConfigInterface::class);
 
                 $rawDebug = $config->get('app.debug', false);
@@ -67,8 +67,6 @@ final class GraphQLServiceProvider extends ServiceProvider
                     GraphQLExecutor::DEFAULT_MAX_QUERY_COMPLEXITY,
                 );
                 $maxComplexity = is_int($rawComplexity) ? $rawComplexity : GraphQLExecutor::DEFAULT_MAX_QUERY_COMPLEXITY;
-            } catch (\Throwable) {
-                // Config not bound — fall back to the constructor defaults.
             }
 
             return new GraphQLExecutor($schema, $debug, $maxDepth, $maxComplexity);
@@ -82,22 +80,20 @@ final class GraphQLServiceProvider extends ServiceProvider
     {
         GraphQL::setExecutor($this->app->make(GraphQLExecutor::class));
 
-        try {
-            $router = $this->app->make(Router::class);
-
-            $endpoint = '/graphql';
-
-            try {
-                $config = $this->app->make(ConfigInterface::class);
-                $raw = $config->get('graphql.endpoint', '/graphql');
-                $endpoint = is_string($raw) ? $raw : '/graphql';
-            } catch (\Throwable) {
-                // Config not bound — use default endpoint.
-            }
-
-            $router->post($endpoint, [GraphQLController::class, '__invoke']);
-        } catch (\Throwable) {
-            // Router not available in CLI or test contexts.
+        if (!$this->app->has(Router::class)) {
+            return;
         }
+
+        $router = $this->app->make(Router::class);
+
+        $endpoint = '/graphql';
+
+        if ($this->app->has(ConfigInterface::class)) {
+            $config = $this->app->make(ConfigInterface::class);
+            $raw = $config->get('graphql.endpoint', '/graphql');
+            $endpoint = is_string($raw) ? $raw : '/graphql';
+        }
+
+        $router->post($endpoint, [GraphQLController::class, '__invoke']);
     }
 }

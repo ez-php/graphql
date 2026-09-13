@@ -296,7 +296,7 @@ Static facade following the `Health`/`Flag`/`Metrics` pattern. Holds `private st
 
 `register()` binds `GraphQLExecutor` lazily — requires `GraphQL\Type\Schema` to already be bound (fail-fast if not). The `Schema` binding is the user's responsibility and must be registered in a provider that runs before `GraphQLServiceProvider`.
 
-`boot()` initialises the static facade and registers `POST /graphql` (or the configured endpoint). Route registration is wrapped in `try/catch` for CLI safety. The endpoint URI is read from `graphql.endpoint` config with `/graphql` as the default.
+`boot()` initialises the static facade and registers `POST /graphql` (or the configured endpoint). Route registration is guarded by `$this->app->has(Router::class)` for CLI safety, rather than a `try/catch` probe. The endpoint URI is read from `graphql.endpoint` config with `/graphql` as the default.
 
 ---
 
@@ -308,7 +308,7 @@ Static facade following the `Health`/`Flag`/`Metrics` pattern. Holds `private st
 - **HTTP 200 for GraphQL errors.** The GraphQL over HTTP spec states that partial success responses (data + errors) and full error responses (no data) should use HTTP 200. Only a missing/empty query field (a protocol error, not a GraphQL error) returns HTTP 400.
 - **`SchemaBuilder` covers simple schemas only.** The fluent builder wraps webonyx's `ObjectType` and `Schema` for the single-query-root, single-mutation-root case. Advanced schemas (multiple types, interfaces, unions) use webonyx directly. This is an explicit scope limit — adding full schema DSL functionality would duplicate webonyx.
 - **Variables passed as `null` when empty.** webonyx treats `null` as "no variables provided" and `[]` as "empty variables object". Passing `null` for empty variables produces correct behaviour with all webonyx validators.
-- **`ez-php/framework` required for route registration.** The Router lives in `ez-php/framework`. Wrapping the registration in `try/catch` ensures the module can be used in contexts where only contracts + http are present (e.g. custom dispatchers), but the route simply won't be registered.
+- **`ez-php/framework` required for route registration.** The Router lives in `ez-php/framework`. Guarding registration with `$this->app->has(Router::class)` ensures the module can be used in contexts where only contracts + http are present (e.g. custom dispatchers), but the route simply won't be registered.
 
 ---
 
