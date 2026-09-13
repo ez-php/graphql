@@ -6,6 +6,7 @@ namespace EzPhp\GraphQL;
 
 use EzPhp\Http\Request;
 use EzPhp\Http\Response;
+use EzPhp\Http\ResponseFactory;
 
 /**
  * Class GraphQLController
@@ -38,7 +39,7 @@ final class GraphQLController
         $query = isset($body['query']) && is_string($body['query']) ? $body['query'] : null;
 
         if ($query === null || $query === '') {
-            return Response::json(
+            return ResponseFactory::json(
                 ['errors' => [['message' => 'No GraphQL query provided.']]],
                 400,
             );
@@ -61,6 +62,6 @@ final class GraphQLController
 
         $result = $this->executor->execute($query, $variables, $operationName);
 
-        return Response::json($result);
+        return ResponseFactory::json($result);
     }
 }
