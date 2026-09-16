@@ -77,6 +77,60 @@ Response:
 }
 ```
 
+## Recipes
+
+### N+1 batching with `ez-php/dataloader`
+
+`ez-php/graphql` has no built-in DataLoader wiring — schema fields are resolved with plain
+closures, and it composes with `ez-php/dataloader` at the resolver level rather than as a
+module dependency. Create one `DataLoader` per entity type in your schema provider and
+close over it from the resolvers that need it:
+
+```php
+use EzPhp\DataLoader\DataLoader;
+use EzPhp\GraphQL\SchemaBuilder;
+use GraphQL\Type\Definition\Type;
+
+$userLoader = new DataLoader(fn(array $ids): array => Db::query(
+    'SELECT * FROM users WHERE id IN (?)',
+    [$ids],
+)->keyBy('id'));
+
+$schema = SchemaBuilder::create()
+    ->query([
+        'post' => [
+            'type' => Type::string(),
+            'args' => ['id' => ['type' => Type::nonNull(Type::id())]],
+            'resolve' => function ($root, array $args) use ($userLoader): array {
+                $post = findPost($args['id']);
+
+                // queues the author id; the batch call only fires once every
+                // sibling field in this selection set has queued its own key
+                $authorDeferred = $userLoader->load($post['author_id']);
+
+                return ['title' => $post['title'], 'author' => $authorDeferred->get()];
+            },
+        ],
+    ])
+    ->build();
+```
+
+Every `load()` call within the same resolver pass queues its key on the loader without
+running the batch function; `Deferred::get()` triggers `dispatch()` the first time a value
+is actually needed, so N sibling posts resolving the same `$userLoader` produce one query
+for all their authors instead of N queries. See `modules/dataloader/README.md` for the
+loader's full API (`prime()`/`clear()`/`clearAll()`, the batch function contract).
+
+**Caveat:** `SchemaBuilder`/`GraphQLServiceProvider` bind `Schema` (and therefore any
+`DataLoader` captured by its resolver closures) once, at boot. A loader built this way is
+**process-lifetime, not request-scoped** — memoized values and in-flight batches persist
+across requests within the same worker process. This is safe for read-through caches with
+short TTLs or stateless batch functions, but wrong for anything that must not leak between
+requests (e.g. a loader keyed by the current user). A request-scoped registry that creates
+fresh loaders per request and injects them via webonyx's resolver `$context` argument is a
+larger change — see `TODO.md` ("Architecture / Tooling" → `DataLoaderRegistry`) for that
+follow-up, which would live in this module.
+
 ## Static Facade
 
 ```php
