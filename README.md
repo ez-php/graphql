@@ -131,6 +131,43 @@ fresh loaders per request and injects them via webonyx's resolver `$context` arg
 larger change — see `TODO.md` ("Architecture / Tooling" → `DataLoaderRegistry`) for that
 follow-up, which would live in this module.
 
+### Subscriptions over `ez-php/websocket` + `ez-php/broadcast`
+
+`ez-php/graphql` has no subscription protocol — there is no persistent-connection layer
+here, by design (see CLAUDE.md "What does not belong in this module"). Real-time updates
+are wired at the application layer instead: a mutation resolver broadcasts an event after
+it writes, and clients that want the update subscribe over a plain WebSocket channel
+rather than a GraphQL `subscription` operation:
+
+```php
+use EzPhp\Broadcast\Broadcast;
+use EzPhp\GraphQL\SchemaBuilder;
+use GraphQL\Type\Definition\Type;
+
+$schema = SchemaBuilder::create()
+    ->mutation([
+        'createComment' => [
+            'type' => Type::string(),
+            'args' => ['postId' => ['type' => Type::nonNull(Type::id())], 'body' => ['type' => Type::nonNull(Type::string())]],
+            'resolve' => function ($root, array $args): string {
+                $comment = createComment($args['postId'], $args['body']);
+
+                // Clients subscribed to `post.{id}` over ez-php/websocket receive this
+                // as a plain WS message; there's no GraphQL-level `subscription` field.
+                Broadcast::to('post.' . $args['postId'], 'comment.created', ['id' => $comment['id'], 'body' => $comment['body']]);
+
+                return $comment['id'];
+            },
+        ],
+    ])
+    ->build();
+```
+
+On the client side this is two separate connections: a GraphQL HTTP request for the
+mutation, and a WebSocket connection (see `modules/websocket/README.md`) subscribed to
+`post.{id}` for the resulting push. There is no single subscription query that does both —
+composing them is the application's job, not this module's.
+
 ## Static Facade
 
 ```php
