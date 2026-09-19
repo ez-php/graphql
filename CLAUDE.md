@@ -255,10 +255,12 @@ src/
 ├── GraphQLExecutor.php             — wraps webonyx execution; handles debug mode and PHP-level exceptions
 ├── GraphQLServiceProvider.php      — binds executor, registers POST /graphql route
 ├── SchemaBuilder.php               — fluent builder for webonyx Schema (query + mutation)
-└── SchemaException.php             — thrown when build() is called without query fields
+├── SchemaException.php             — thrown when build() is called without query fields
+└── DataLoaderRegistry.php          — per-request keyed registry of ez-php/dataloader DataLoader instances
 
 tests/
 ├── TestCase.php                    — abstract base; makeHelloSchema() factory for a reusable test schema
+├── DataLoaderRegistryTest.php      — registry tests: get/has/dispatchAll/clear, shared-loader identity across "resolvers"
 ├── GraphQLTest.php                 — facade tests: delegation, fail-fast, reset
 ├── GraphQLExecutorTest.php         — execution tests: valid queries, variables, errors, debug mode, resolver exception
 ├── GraphQLControllerTest.php       — HTTP layer tests: 200/400 status, variables, operationName, content-type
@@ -290,6 +292,8 @@ Debug mode (`$debug = true`) passes `DebugFlag::INCLUDE_DEBUG_MESSAGE | DebugFla
 
 GraphQL-level errors (invalid field names, failed type coercions) are handled natively by webonyx — they appear in `$result->errors` and are never rethrown.
 
+`execute()`'s optional `mixed $context = null` parameter (added alongside `DataLoaderRegistry`) is passed straight through as webonyx's per-request `$contextValue`, reaching every resolver as their third argument — e.g. a `DataLoaderRegistry` constructed fresh per request. `GraphQLExecutor` itself has no opinion on what `$context` is; it is purely a passthrough.
+
 ---
 
 ### GraphQLController (`src/GraphQLController.php`)
@@ -303,6 +307,12 @@ Returns HTTP 400 only when `query` is missing or empty. All other responses (inc
 ### GraphQL (`src/GraphQL.php`)
 
 Static facade following the `Health`/`Flag`/`Metrics` pattern. Holds `private static ?GraphQLExecutor $executor`. Initialised by `GraphQLServiceProvider::boot()`. Throws `RuntimeException` (fail-fast) when called before initialisation. `resetExecutor()` clears the singleton for test `tearDown`.
+
+---
+
+### DataLoaderRegistry (`src/DataLoaderRegistry.php`)
+
+Per-request keyed registry of `EzPhp\DataLoader\DataLoader` instances. `get(key, batchLoadFn)` creates a loader on first call for a key and returns the same instance on every later call for that key (ignoring the batch function passed on later calls), so multiple resolvers batching the same kind of data (e.g. `post.author` and `comment.author` both loading `User` rows) share one `DataLoader` and one batch call instead of each maintaining its own. `has()`, `dispatchAll()` (dispatches every registered loader in one call), and `clear()` round out the API. See Design Decisions for why this lives here and not in `ez-php/dataloader`.
 
 ---
 
@@ -323,6 +333,9 @@ Static facade following the `Health`/`Flag`/`Metrics` pattern. Holds `private st
 - **`SchemaBuilder` covers simple schemas only.** The fluent builder wraps webonyx's `ObjectType` and `Schema` for the single-query-root, single-mutation-root case. Advanced schemas (multiple types, interfaces, unions) use webonyx directly. This is an explicit scope limit — adding full schema DSL functionality would duplicate webonyx.
 - **Variables passed as `null` when empty.** webonyx treats `null` as "no variables provided" and `[]` as "empty variables object". Passing `null` for empty variables produces correct behaviour with all webonyx validators.
 - **`ez-php/framework` required for route registration.** The Router lives in `ez-php/framework`. Guarding registration with `$this->app->has(Router::class)` ensures the module can be used in contexts where only contracts + http are present (e.g. custom dispatchers), but the route simply won't be registered.
+- **`DataLoaderRegistry` lives here, not in `ez-php/dataloader`, per that module's own documented boundary.** `ez-php/dataloader`'s `CLAUDE.md` explicitly excludes "GraphQL-specific resolver wiring (e.g. a `DataLoaderRegistry` keyed by GraphQL field, request-scoped loader lifecycle tied to `GraphQLExecutor`)" and points to `ez-php/graphql`. `ez-php/dataloader` is a hard `require` dependency (not soft/`require-dev`) — unlike the soft-dependency bridges elsewhere in this monorepo, `DataLoaderRegistry` is a first-class, always-available part of this module's resolver-wiring surface, and `ez-php/graphql` is already not a zero-dependency module (`webonyx/graphql-php`, `ez-php/framework`).
+- **`DataLoaderRegistry` is not container-managed and not wired into `GraphQLServiceProvider`.** It must be constructed fresh per request and discarded afterward — a shared long-lived instance (e.g. a container singleton) would leak cached values and pending batch keys across unrelated requests. Applications construct one per request and pass it as `GraphQLExecutor::execute()`'s new optional `$context` parameter, which reaches every resolver via webonyx's per-request context — `GraphQLExecutor` stays a thin, opinion-free passthrough for it (see its own section above), matching this module's existing "schema is user-defined, executor stays thin" design.
+- **The N+1-solving primitive itself still does not belong here.** The "What Does NOT Belong" DataLoader entry below is about `DataLoader`'s batching/deferred-resolution *algorithm*, which stays in `ez-php/dataloader` — `DataLoaderRegistry` only composes it, it does not reimplement or fork it.
 
 ---
 
@@ -335,6 +348,7 @@ No external infrastructure required — all tests run in-process.
 - `GraphQLExecutorTest` — covers happy path, variables, operation name selection, invalid field errors, syntax errors, debug vs production error format, resolver exception containment.
 - `GraphQLControllerTest` — constructs `Request` objects directly (`new Request('POST', '/graphql', body: [...])`), asserts HTTP status, response body, content-type header, and correct delegation of variables/operationName.
 - `GraphQLTest` — facade delegation, fail-fast on uninitialised access, `resetExecutor()` for test isolation.
+- `DataLoaderRegistryTest` — `get()` creates on first call and returns the same instance for a repeat key (simulating two resolvers sharing one loader), the batch function on a repeat call is ignored, different keys produce different loaders, `has()`/`clear()`, and `dispatchAll()` dispatching two independently-pending loaders in one call.
 
 All test classes declare `#[CoversClass]` and `#[UsesClass]` attributes for strict coverage metadata.
 
@@ -347,6 +361,6 @@ All test classes declare `#[CoversClass]` and `#[UsesClass]` attributes for stri
 - **Persisted queries** — query ID → document mapping belongs in application middleware, not this module.
 - **Authentication / authorisation guards on resolvers** — use context injection via webonyx's context parameter and application-level auth logic.
 - **Rate limiting on the GraphQL endpoint** — apply `ez-php/rate-limiter`'s `ThrottleMiddleware` to the `/graphql` route.
-- **N+1 query solving (DataLoader)** — batching/deferred resolution belongs in a separate `ez-php/dataloader` module or a webonyx extension.
+- **N+1 batching/deferred-resolution algorithm itself** — that's `ez-php/dataloader`'s `DataLoader`; this module's `DataLoaderRegistry` only composes it (see Design Decisions).
 - **Schema introspection disabling** — disable via webonyx's `Schema::$assumeValid` or a custom validation rule at the application level.
 - **Multi-schema / schema stitching** — bind a combined `Schema` in the application service provider; the module always uses whichever `Schema` is bound.

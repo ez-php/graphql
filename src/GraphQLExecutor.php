@@ -72,17 +72,21 @@ final class GraphQLExecutor
      * @param string               $query         GraphQL query or mutation document.
      * @param array<string, mixed> $variables     Optional variable map.
      * @param string|null          $operationName Optional operation name for multi-operation documents.
+     * @param mixed                $context       Optional value passed through as webonyx's per-request
+     *                                             context to every resolver (third resolver argument) —
+     *                                             e.g. an `EzPhp\GraphQL\DataLoaderRegistry` constructed
+     *                                             fresh for this request. `null` by default.
      *
      * @return array<string, mixed>
      */
-    public function execute(string $query, array $variables = [], ?string $operationName = null): array
+    public function execute(string $query, array $variables = [], ?string $operationName = null, mixed $context = null): array
     {
         try {
             $result = WebonixGraphQL::executeQuery(
                 $this->schema,
                 $query,
                 null,
-                null,
+                $context,
                 $variables !== [] ? $variables : null,
                 $operationName,
                 null,

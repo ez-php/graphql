@@ -48,12 +48,14 @@ final class GraphQL
      * @param string               $query         GraphQL query or mutation document.
      * @param array<string, mixed> $variables     Optional variable map.
      * @param string|null          $operationName Optional operation name.
+     * @param mixed                $context       Optional per-request value passed through to every
+     *                                             resolver — see `GraphQLExecutor::execute()`.
      *
      * @return array<string, mixed>
      */
-    public static function execute(string $query, array $variables = [], ?string $operationName = null): array
+    public static function execute(string $query, array $variables = [], ?string $operationName = null, mixed $context = null): array
     {
-        return self::executor()->execute($query, $variables, $operationName);
+        return self::executor()->execute($query, $variables, $operationName, $context);
     }
 
     /**

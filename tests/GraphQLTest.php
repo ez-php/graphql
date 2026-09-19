@@ -40,6 +40,30 @@ final class GraphQLTest extends GraphQLTestCase
         self::assertSame(['data' => ['greet' => 'Hello, Eve!']], $result);
     }
 
+    public function testExecutePassesContext(): void
+    {
+        GraphQL::setExecutor(new GraphQLExecutor($this->makeSchemaReadingContext()));
+
+        $result = GraphQL::execute('{ whoAmI }', context: 'user-7');
+
+        self::assertSame(['data' => ['whoAmI' => 'user-7']], $result);
+    }
+
+    private function makeSchemaReadingContext(): \GraphQL\Type\Schema
+    {
+        return new \GraphQL\Type\Schema([
+            'query' => new \GraphQL\Type\Definition\ObjectType([
+                'name' => 'Query',
+                'fields' => [
+                    'whoAmI' => [
+                        'type' => \GraphQL\Type\Definition\Type::string(),
+                        'resolve' => fn (mixed $root, array $args, mixed $context): mixed => $context,
+                    ],
+                ],
+            ]),
+        ]);
+    }
+
     public function testThrowsWhenNotInitialised(): void
     {
         $this->expectException(RuntimeException::class);

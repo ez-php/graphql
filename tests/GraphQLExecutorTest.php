@@ -204,4 +204,37 @@ final class GraphQLExecutorTest extends GraphQLTestCase
             ]),
         ]);
     }
+
+    public function testExecutePassesContextToResolvers(): void
+    {
+        $executor = new GraphQLExecutor($this->makeSchemaReadingContext());
+
+        $result = $executor->execute('{ whoAmI }', context: 'user-42');
+
+        self::assertSame(['data' => ['whoAmI' => 'user-42']], $result);
+    }
+
+    public function testExecuteDefaultsContextToNull(): void
+    {
+        $executor = new GraphQLExecutor($this->makeSchemaReadingContext());
+
+        $result = $executor->execute('{ whoAmI }');
+
+        self::assertSame(['data' => ['whoAmI' => null]], $result);
+    }
+
+    private function makeSchemaReadingContext(): \GraphQL\Type\Schema
+    {
+        return new \GraphQL\Type\Schema([
+            'query' => new \GraphQL\Type\Definition\ObjectType([
+                'name' => 'Query',
+                'fields' => [
+                    'whoAmI' => [
+                        'type' => \GraphQL\Type\Definition\Type::string(),
+                        'resolve' => fn (mixed $root, array $args, mixed $context): mixed => $context,
+                    ],
+                ],
+            ]),
+        ]);
+    }
 }

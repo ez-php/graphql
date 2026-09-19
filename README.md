@@ -81,28 +81,30 @@ Response:
 
 ### N+1 batching with `ez-php/dataloader`
 
-`ez-php/graphql` has no built-in DataLoader wiring — schema fields are resolved with plain
-closures, and it composes with `ez-php/dataloader` at the resolver level rather than as a
-module dependency. Create one `DataLoader` per entity type in your schema provider and
-close over it from the resolvers that need it:
+`ez-php/graphql` depends on `ez-php/dataloader` and ships `DataLoaderRegistry` — a
+request-scoped, keyed registry of `DataLoader` instances, so resolvers that batch the same
+kind of data (e.g. a `post.author` field and a `comment.author` field, both loading `User`
+rows) share one loader and one batch call instead of each maintaining its own.
+
+Construct one registry per request and pass it through as webonyx's execution context so
+every resolver can reach it via `$context`:
 
 ```php
-use EzPhp\DataLoader\DataLoader;
+use EzPhp\GraphQL\DataLoaderRegistry;
 use EzPhp\GraphQL\SchemaBuilder;
 use GraphQL\Type\Definition\Type;
-
-$userLoader = new DataLoader(fn(array $ids): array => Db::query(
-    'SELECT * FROM users WHERE id IN (?)',
-    [$ids],
-)->keyBy('id'));
 
 $schema = SchemaBuilder::create()
     ->query([
         'post' => [
             'type' => Type::string(),
             'args' => ['id' => ['type' => Type::nonNull(Type::id())]],
-            'resolve' => function ($root, array $args) use ($userLoader): array {
+            'resolve' => function ($root, array $args, DataLoaderRegistry $context): array {
                 $post = findPost($args['id']);
+                $userLoader = $context->get('users', fn(array $ids): array => Db::query(
+                    'SELECT * FROM users WHERE id IN (?)',
+                    [$ids],
+                )->keyBy('id'));
 
                 // queues the author id; the batch call only fires once every
                 // sibling field in this selection set has queued its own key
@@ -113,23 +115,25 @@ $schema = SchemaBuilder::create()
         ],
     ])
     ->build();
+
+// per request:
+$registry = new DataLoaderRegistry();
+$executor->execute($query, $variables, context: $registry);
 ```
 
-Every `load()` call within the same resolver pass queues its key on the loader without
-running the batch function; `Deferred::get()` triggers `dispatch()` the first time a value
-is actually needed, so N sibling posts resolving the same `$userLoader` produce one query
-for all their authors instead of N queries. See `modules/dataloader/README.md` for the
-loader's full API (`prime()`/`clear()`/`clearAll()`, the batch function contract).
+`DataLoaderRegistry::get(key, batchLoadFn)` creates a `DataLoader` on first call for a key
+and returns the same instance on every later call for that key within the same registry —
+the batch function passed on a later call is ignored, since the first resolver to reach a
+key defines it. `Deferred::get()` triggers `dispatch()` the first time a value is actually
+needed, so N sibling posts resolving the same `users` loader produce one query for all
+their authors instead of N queries. See `modules/dataloader/README.md` for `DataLoader`'s
+full API (`prime()`/`clear()`/`clearAll()`, the batch function contract).
 
-**Caveat:** `SchemaBuilder`/`GraphQLServiceProvider` bind `Schema` (and therefore any
-`DataLoader` captured by its resolver closures) once, at boot. A loader built this way is
-**process-lifetime, not request-scoped** — memoized values and in-flight batches persist
-across requests within the same worker process. This is safe for read-through caches with
-short TTLs or stateless batch functions, but wrong for anything that must not leak between
-requests (e.g. a loader keyed by the current user). A request-scoped registry that creates
-fresh loaders per request and injects them via webonyx's resolver `$context` argument is a
-larger change — see `TODO.md` ("Architecture / Tooling" → `DataLoaderRegistry`) for that
-follow-up, which would live in this module.
+**Always construct a fresh `DataLoaderRegistry` per request and discard it afterward** — a
+shared, long-lived instance (e.g. a container singleton) would leak cached values and
+pending batch keys across unrelated requests. `DataLoaderRegistry` is deliberately not
+wired into `GraphQLServiceProvider` for this reason; pass a fresh one as `execute()`'s
+`$context` argument yourself, per request, from your own controller or middleware.
 
 ### Subscriptions over `ez-php/websocket` + `ez-php/broadcast`
 
