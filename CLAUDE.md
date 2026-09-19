@@ -251,7 +251,8 @@ When adding a new module, add `"$ROOT/modules/<name>"` to the `PACKAGES` array i
 ```
 src/
 ├── GraphQL.php                     — static facade: execute(), setExecutor(), resetExecutor()
-├── GraphQLController.php           — invokable HTTP handler for POST /graphql
+├── GraphQLController.php           — invokable HTTP handler for POST /graphql; optional Automatic Persisted Queries protocol
+├── PersistedQueryStore.php         — APQ store over ez-php/cache (soft dependency): find()/register()/matches(), 64 KiB cap
 ├── GraphQLExecutor.php             — wraps webonyx execution; handles debug mode and PHP-level exceptions
 ├── GraphQLServiceProvider.php      — binds executor, registers POST /graphql route
 ├── SchemaBuilder.php               — fluent builder for webonyx Schema (query + mutation)
@@ -316,6 +317,10 @@ Per-request keyed registry of `EzPhp\DataLoader\DataLoader` instances. `get(key,
 
 ---
 
+### PersistedQueryStore (`src/PersistedQueryStore.php`)
+
+Cache-backed hash → query store. `matches()` verifies SHA-256, `register()` stores verified queries up to `MAX_QUERY_BYTES` (65536) with the configured TTL, `find()` returns the text or `null` (also for malformed hashes).
+
 ### GraphQLServiceProvider (`src/GraphQLServiceProvider.php`)
 
 `register()` binds `GraphQLExecutor` lazily — requires `GraphQL\Type\Schema` to already be bound (fail-fast if not). The `Schema` binding is the user's responsibility and must be registered in a provider that runs before `GraphQLServiceProvider`.
@@ -338,6 +343,9 @@ Per-request keyed registry of `EzPhp\DataLoader\DataLoader` instances. `get(key,
 - **The N+1-solving primitive itself still does not belong here.** The "What Does NOT Belong" DataLoader entry below is about `DataLoader`'s batching/deferred-resolution *algorithm*, which stays in `ez-php/dataloader` — `DataLoaderRegistry` only composes it, it does not reimplement or fork it.
 
 ---
+- **Automatic Persisted Queries are opt-in and handled in the controller, not as HTTP middleware.** The APQ protocol rewrites the *GraphQL request* (hash → query text) and answers with GraphQL-level errors; a middleware would have to mutate the immutable `Request` body and re-emit those errors itself. `GraphQLController` takes an optional `PersistedQueryStore`; `GraphQLServiceProvider` supplies one only when `graphql.persisted_queries` is `true` *and* a `CacheInterface` is bound. The hash is verified against the text before anything is stored (no cache poisoning) and texts above 64 KiB run but are never stored (bounds anonymous cache growth). A hash-only request while the feature is off answers `PERSISTED_QUERY_NOT_SUPPORTED` so Apollo-style clients fall back to full queries.
+- **`ez-php/cache` is a soft dependency (`require-dev` + `suggest`).** Only `PersistedQueryStore` and the provider's opt-in branch reference it; PSR-4 loads the store only when persisted queries are enabled.
+- **Depth/complexity limits already existed** (`graphql.max_query_depth` default 15, `graphql.max_query_complexity` default 200, `0` disables) — see `GraphQLExecutor`; the provider passes them through and `GraphQLExecutorTest` covers exceeding them.
 
 ## Testing approach
 
@@ -358,7 +366,7 @@ All test classes declare `#[CoversClass]` and `#[UsesClass]` attributes for stri
 
 - **Schema definition DSL / annotations** — use webonyx's API directly; annotation magic is not in scope.
 - **GraphQL subscriptions** — subscriptions require a persistent connection layer (WebSocket/SSE); use `ez-php/websocket` and `ez-php/broadcast` for real-time features.
-- **Persisted queries** — query ID → document mapping belongs in application middleware, not this module.
+- **Pre-registered / allow-list persisted queries** (build-time manifests, rejecting unknown queries) — application concern. Only *automatic* persisted queries (client-registered, hash → text cache) live here.
 - **Authentication / authorisation guards on resolvers** — use context injection via webonyx's context parameter and application-level auth logic.
 - **Rate limiting on the GraphQL endpoint** — apply `ez-php/rate-limiter`'s `ThrottleMiddleware` to the `/graphql` route.
 - **N+1 batching/deferred-resolution algorithm itself** — that's `ez-php/dataloader`'s `DataLoader`; this module's `DataLoaderRegistry` only composes it (see Design Decisions).

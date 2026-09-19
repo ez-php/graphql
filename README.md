@@ -221,8 +221,29 @@ Optional `config/graphql.php`:
 return [
     // URI for the GraphQL endpoint. Default: '/graphql'
     'endpoint' => '/graphql',
+
+    // Limits against expensive documents (0 disables). Defaults: 15 / 200.
+    'max_query_depth' => 15,
+    'max_query_complexity' => 200,
+
+    // Automatic Persisted Queries (needs a bound ez-php/cache CacheInterface). Default: off.
+    'persisted_queries' => false,
+    'persisted_queries_ttl' => 0,   // seconds a stored query lives; 0 = no expiry
 ];
 ```
+
+### Persisted queries
+
+With `persisted_queries => true` the endpoint speaks the Apollo APQ protocol: a client may send `extensions.persistedQuery = {version: 1, sha256Hash}` instead of the query text.
+
+| Request | Result |
+|---|---|
+| hash only, known | the stored query runs |
+| hash only, unknown | `PERSISTED_QUERY_NOT_FOUND` — the client resends hash **and** text |
+| hash + text | the hash must be the SHA-256 of the text (else `PERSISTED_QUERY_HASH_MISMATCH`); the query is stored and runs |
+| hash while the feature is off | `PERSISTED_QUERY_NOT_SUPPORTED` — the client falls back to full queries |
+
+Queries larger than 64 KiB run but are not stored. The store is `PersistedQueryStore` (entries are `graphql:apq:<sha256>` in the cache).
 
 Debug mode is read from `app.debug`. When enabled, error responses include `debugMessage` and stack traces.
 

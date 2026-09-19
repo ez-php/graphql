@@ -1,6 +1,6 @@
 {
     "name": "ez-php/graphql",
-    "version": "2.4.4",
+    "version": "2.4.5",
     "description": "GraphQL module for the ez-php framework — schema builder, query executor, and HTTP endpoint via webonyx/graphql-php",
     "type": "library",
     "license": "MIT",
@@ -32,7 +32,11 @@
         "ez-php/framework": "^2.0",
         "ez-php/dataloader": "^2.0"
     },
+    "suggest": {
+        "ez-php/cache": "Needed for Automatic Persisted Queries (PersistedQueryStore)"
+    },
     "require-dev": {
+        "ez-php/cache": "^2.0",
         "ez-php/docker": "^2.0",
         "phpunit/phpunit": "^13.0",
         "phpstan/phpstan": "^2.1",

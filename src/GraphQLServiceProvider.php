@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace EzPhp\GraphQL;
 
+use EzPhp\Cache\CacheInterface;
 use EzPhp\Contracts\ConfigInterface;
 use EzPhp\Contracts\ContainerInterface;
 use EzPhp\Contracts\ServiceProvider;
@@ -33,6 +34,8 @@ use GraphQL\Type\Schema;
  *   graphql.endpoint              — URI for the GraphQL endpoint (default: '/graphql')
  *   graphql.max_query_depth       — int, max nesting depth (default: 15; 0 disables)
  *   graphql.max_query_complexity  — int, max complexity score (default: 200; 0 disables)
+ *   graphql.persisted_queries     — bool, enable Automatic Persisted Queries (default: false; needs a bound CacheInterface)
+ *   graphql.persisted_queries_ttl — int, seconds a stored query lives (default: 0 = no expiry)
  *   app.debug                     — bool, enables detailed error output in responses
  *
  * @package EzPhp\GraphQL
@@ -71,6 +74,34 @@ final class GraphQLServiceProvider extends ServiceProvider
 
             return new GraphQLExecutor($schema, $debug, $maxDepth, $maxComplexity);
         });
+
+        $this->app->bind(GraphQLController::class, function (ContainerInterface $app): GraphQLController {
+            return new GraphQLController($app->make(GraphQLExecutor::class), $this->makePersistedQueryStore($app));
+        });
+    }
+
+    /**
+     * Build the APQ store when `graphql.persisted_queries` is true and a CacheInterface is bound.
+     *
+     * @param ContainerInterface $app
+     *
+     * @return PersistedQueryStore|null
+     */
+    private function makePersistedQueryStore(ContainerInterface $app): ?PersistedQueryStore
+    {
+        if (!$app->has(ConfigInterface::class) || !$app->has(CacheInterface::class)) {
+            return null;
+        }
+
+        $config = $app->make(ConfigInterface::class);
+
+        if ($config->get('graphql.persisted_queries', false) !== true) {
+            return null;
+        }
+
+        $ttl = $config->get('graphql.persisted_queries_ttl', 0);
+
+        return new PersistedQueryStore($app->make(CacheInterface::class), is_int($ttl) ? max(0, $ttl) : 0);
     }
 
     /**
