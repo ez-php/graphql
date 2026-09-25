@@ -31,6 +31,12 @@ use EzPhp\Http\ResponseFactory;
  */
 final class GraphQLController
 {
+    /**
+     * GraphQLController Constructor
+     *
+     * @param GraphQLExecutor          $executor
+     * @param PersistedQueryStore|null $persistedQueries
+     */
     public function __construct(
         private readonly GraphQLExecutor $executor,
         private readonly ?PersistedQueryStore $persistedQueries = null,
