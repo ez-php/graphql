@@ -99,12 +99,17 @@ $schema = SchemaBuilder::create()
         'post' => [
             'type' => Type::string(),
             'args' => ['id' => ['type' => Type::nonNull(Type::id())]],
-            'resolve' => function ($root, array $args, DataLoaderRegistry $context): array {
+            'resolve' => function ($root, array $args, DataLoaderRegistry $context) use ($db): array {
                 $post = findPost($args['id']);
-                $userLoader = $context->get('users', fn(array $ids): array => Db::query(
-                    'SELECT * FROM users WHERE id IN (?)',
-                    [$ids],
-                )->keyBy('id'));
+                // $db: an injected EzPhp\Contracts\DatabaseInterface; one placeholder per id
+                $userLoader = $context->get('users', fn(array $ids): array => array_column(
+                    $db->query(
+                        'SELECT * FROM users WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')',
+                        array_values($ids),
+                    ),
+                    null,
+                    'id',
+                ));
 
                 // queues the author id; the batch call only fires once every
                 // sibling field in this selection set has queued its own key
