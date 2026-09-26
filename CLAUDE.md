@@ -144,14 +144,14 @@ wiring in one step, wrapping `docker-init` for the Docker subset:
 
 ```
 composer module:make <name> -- --description="..."
-php make_module.php <name> --description="..." --services=mysql,redis
+php make_module.php <name> --description="..." --services=mysql,redis --extensions=gmp
 ```
 
 `<name>` is the kebab-case package name; the namespace is derived as
 `EzPhp\<PascalCase>` (each `-`-separated word upper-cased) unless `--namespace=`
 overrides it. Existing exceptions the guess gets wrong: `bignum` → `BigNum`,
 `dataloader` → `DataLoader`, `dotenv` → `Env`, `graphql` → `GraphQL`, `oauth` → `OAuth`,
-`opcache` → `OPCache`, `swagger-ui` → `SwaggerUI`, `webauthn` → `WebAuthn` and
+`opcache` → `OPCache`, `openapi` → `OpenApi`, `swagger-ui` → `SwaggerUI`, `webauthn` → `WebAuthn` and
 `websocket` → `WebSocket`; `websocket-client` → `WebsocketClient`, `websocket-tls` → `WebsocketTls`,
 `webauthn-metadata` → `WebauthnMetadata` and `metrics-statsd` → `MetricsStatsd` are
 intentional lower-case-word namespaces, and `testing-application` shares `EzPhp\Testing\`
@@ -166,7 +166,7 @@ php make_module.php <name> --repo=<git-url> [--namespace=Foo]
 
 This runs `git submodule add <url> modules/<name>` instead of writing package
 files, then applies the same monorepo wiring below. It is mutually exclusive
-with `--services` and `--description` — a submodule brings its own Docker
+with `--services`/`--extensions` and `--description` — a submodule brings its own Docker
 scaffold (if any) and its own `composer.json` description. A minimal `CLAUDE.md`
 stub is written only if the submodule doesn't already ship one, so
 `composer guidelines:sync` has a `# Package:` heading to anchor part 1 against.
@@ -235,19 +235,23 @@ After scaffolding:
 | `ez-php/rate-limiter` | — | 6382 (`REDIS_HOST_PORT`) | — |
 | `ez-php/search` | — | — | 7701 |
 | `ez-php/event-store` | 3311 | — | — |
-| **next free** | **3312** | **6384** | **7702** |
+| `ez-php/broadcast` | — | 6384 (`REDIS_HOST_PORT`) | — |
+| `ez-php/feature-flags` | — | 6385 (`REDIS_HOST_PORT`) | — |
+| `ez-php/scheduler` | — | 6386 (`REDIS_HOST_PORT`) | — |
+| `ez-php/session` | — | 6387 (`REDIS_HOST_PORT`) | — |
+| **next free** | **3312** | **6388** | **7702** |
 
 Only set a port for services the module actually uses. Modules without external services need no port config.
 
 > The `MEILISEARCH_PORT` column is the **host** port. Inside a Compose network the service is always reachable at `http://meilisearch:7700` regardless of the host mapping — only publish-side ports need to be unique.
 
-> The "Redis host port" column is likewise the **host**-published port. `ez-php/cache`, `ez-php/queue`, and `ez-php/rate-limiter` map it through a separate `REDIS_HOST_PORT` env var in `docker-compose.yml`, keeping `REDIS_PORT` fixed at `6379` for in-container connections (the app container always reaches Redis at `redis:6379` over the Compose network, regardless of the host mapping) — the root project and the `ez-php/` application template are the two exceptions, since both have no host/container split and use `REDIS_PORT` for both (the template's other in-container Redis settings — `CACHE_REDIS_PORT`, `QUEUE_REDIS_PORT`, `RATE_LIMITER_REDIS_PORT`, `HEALTH_REDIS_PORT` — stay fixed at `6379` regardless, same as every other module).
+> The "Redis host port" column is likewise the **host**-published port. Every module row maps it through a separate `REDIS_HOST_PORT` env var in `docker-compose.yml`, keeping `REDIS_PORT` fixed at `6379` for in-container connections (the app container always reaches Redis at `redis:6379` over the Compose network, regardless of the host mapping) — the root project and the `ez-php/` application template are the two exceptions, since both have no host/container split and use `REDIS_PORT` for both (the template's other in-container Redis settings — `CACHE_REDIS_PORT`, `QUEUE_REDIS_PORT`, `RATE_LIMITER_REDIS_PORT`, `HEALTH_REDIS_PORT` — stay fixed at `6379` regardless, same as every other module).
 
-> This table tracks only MySQL, Redis, and Meilisearch ports — the three services shared across multiple modules where a collision is otherwise easy to introduce. Mailpit is the one other service with published host ports: SMTP `1025` and web UI `8025`. `ez-php/mail` maps them through `MAILPIT_SMTP_HOST_PORT`/`MAILPIT_API_HOST_PORT` in `modules/mail/docker-compose.yml` (mirroring the `*_HOST_PORT` pattern above, documented in `modules/mail/.env.example`); the root project and the `ez-php/` template each run their own Mailpit on the same defaults (`MAIL_PORT`/`MAIL_WEB_PORT`), so **these three stacks cannot run at the same time** without overriding those variables. It isn't a table column because no module beyond those three runs Mailpit — but a new module adding its own single-use service's ports should likewise parameterize them and document the defaults in its own `.env.example` rather than adding a column here.
+> This table tracks only MySQL, Redis, and Meilisearch ports — the three services shared across multiple modules where a collision is otherwise easy to introduce. Mailpit is the one other service with published host ports: SMTP `1025` and web UI `8025`. `ez-php/mail` maps them through `MAILPIT_SMTP_HOST_PORT`/`MAILPIT_API_HOST_PORT` in `modules/mail/docker-compose.yml` (mirroring the `*_HOST_PORT` pattern above, documented in `modules/mail/.env.example`); the root project and the `ez-php/` template each run their own Mailpit on the same defaults (`MAIL_PORT`/`MAIL_WEB_PORT`), so **these three stacks cannot run at the same time** without overriding those variables. It isn't a table column because no module beyond those three runs Mailpit — but a new module adding its own single-use service's ports should likewise parameterize them and document the defaults in its own `.env.example` rather than adding a column here. Services reached only over the Compose network publish no host port and need no entry at all: Memcached (`memcached:11211` in the root stack and `ez-php/cache`) and the opt-in Elasticsearch/Typesense backends in `modules/search/docker-compose.ci.yml`.
 
 ### 5 — Monorepo scripts
 
-`packages.sh` at the project root is the **central package registry**. Both `push_all.sh` and `update_all.sh` source it — the package list lives in exactly one place.
+`packages.sh` at the project root is the **central package registry**. Every multi-package script sources it — `update_all.sh`, `fullcheck.sh`, `bump_version.sh` and the `git_*_all.sh` scripts (`git_push_all.sh`, `git_pull_all.sh`, `git_tag_all.sh`, `git_delete_all_tags.sh`) — so the package list lives in exactly one place.
 
 When adding a new module, add `"$ROOT/modules/<name>"` to the `PACKAGES` array in `packages.sh` in **alphabetical order** among the other `modules/*` entries (before `framework`, `ez-php`, and the root entry at the end).
 
@@ -335,7 +339,7 @@ Cache-backed hash → query store. `matches()` verifies SHA-256, `register()` st
 
 `register()` binds `GraphQLExecutor` lazily — requires `GraphQL\Type\Schema` to already be bound (fail-fast if not). The `Schema` binding is the user's responsibility and must be registered in a provider that runs before `GraphQLServiceProvider`.
 
-`boot()` initialises the static facade and registers `POST /graphql` (or the configured endpoint). Route registration is guarded by `$this->app->has(Router::class)` for CLI safety, rather than a `try/catch` probe. The endpoint URI is read from `graphql.endpoint` config with `/graphql` as the default.
+`boot()` initialises the static facade and registers `POST /graphql` (or the configured endpoint). Route registration is guarded by `$this->app->has(RouterInterface::class)` for CLI safety, rather than a `try/catch` probe. The endpoint URI is read from `graphql.endpoint` config with `/graphql` as the default.
 
 ---
 
@@ -347,7 +351,7 @@ Cache-backed hash → query store. `matches()` verifies SHA-256, `register()` st
 - **HTTP 200 for GraphQL errors.** The GraphQL over HTTP spec states that partial success responses (data + errors) and full error responses (no data) should use HTTP 200. Only a missing/empty query field (a protocol error, not a GraphQL error) returns HTTP 400.
 - **`SchemaBuilder` covers simple schemas only.** The fluent builder wraps webonyx's `ObjectType` and `Schema` for the single-query-root, single-mutation-root case. Advanced schemas (multiple types, interfaces, unions) use webonyx directly. This is an explicit scope limit — adding full schema DSL functionality would duplicate webonyx.
 - **Variables passed as `null` when empty.** webonyx treats `null` as "no variables provided" and `[]` as "empty variables object". Passing `null` for empty variables produces correct behaviour with all webonyx validators.
-- **`ez-php/framework` required for route registration.** The Router lives in `ez-php/framework`. Guarding registration with `$this->app->has(Router::class)` ensures the module can be used in contexts where only contracts + http are present (e.g. custom dispatchers), but the route simply won't be registered.
+- **Routes register against `EzPhp\Contracts\RouterInterface`**, not the framework's concrete `Router` — the framework's `RouterServiceProvider` binds the interface to its router, so this module needs only `ez-php/contracts` + `ez-php/http` at runtime (`ez-php/framework` is not required). Guarding registration with `$this->app->has(RouterInterface::class)` lets the module run where no router is bound (e.g. custom dispatchers) — the route is then simply not registered.
 - **`DataLoaderRegistry` lives here, not in `ez-php/dataloader`, per that module's own documented boundary.** `ez-php/dataloader`'s `CLAUDE.md` explicitly excludes "GraphQL-specific resolver wiring (e.g. a `DataLoaderRegistry` keyed by GraphQL field, request-scoped loader lifecycle tied to `GraphQLExecutor`)" and points to `ez-php/graphql`. `ez-php/dataloader` is a hard `require` dependency (not soft/`require-dev`) — unlike the soft-dependency bridges elsewhere in this monorepo, `DataLoaderRegistry` is a first-class, always-available part of this module's resolver-wiring surface, and `ez-php/graphql` is already not a zero-dependency module (`webonyx/graphql-php`, `ez-php/framework`).
 - **`DataLoaderRegistry` is not container-managed and not wired into `GraphQLServiceProvider`.** It must be constructed fresh per request and discarded afterward — a shared long-lived instance (e.g. a container singleton) would leak cached values and pending batch keys across unrelated requests. Applications construct one per request and pass it as `GraphQLExecutor::execute()`'s new optional `$context` parameter, which reaches every resolver via webonyx's per-request context — `GraphQLExecutor` stays a thin, opinion-free passthrough for it (see its own section above), matching this module's existing "schema is user-defined, executor stays thin" design.
 - **The N+1-solving primitive itself still does not belong here.** The "What Does NOT Belong" DataLoader entry below is about `DataLoader`'s batching/deferred-resolution *algorithm*, which stays in `ez-php/dataloader` — `DataLoaderRegistry` only composes it, it does not reimplement or fork it.
@@ -356,7 +360,6 @@ Cache-backed hash → query store. `matches()` verifies SHA-256, `register()` st
 - **Automatic Persisted Queries are opt-in and handled in the controller, not as HTTP middleware.** The APQ protocol rewrites the *GraphQL request* (hash → query text) and answers with GraphQL-level errors; a middleware would have to mutate the immutable `Request` body and re-emit those errors itself. `GraphQLController` takes an optional `PersistedQueryStore`; `GraphQLServiceProvider` supplies one only when `graphql.persisted_queries` is `true` *and* a `CacheInterface` is bound. The hash is verified against the text before anything is stored (no cache poisoning) and texts above 64 KiB run but are never stored (bounds anonymous cache growth). A hash-only request while the feature is off answers `PERSISTED_QUERY_NOT_SUPPORTED` so Apollo-style clients fall back to full queries.
 - **`ez-php/cache` is a soft dependency (`require-dev` + `suggest`).** Only `PersistedQueryStore` and the provider's opt-in branch reference it; PSR-4 loads the store only when persisted queries are enabled.
 - **Depth/complexity limits already existed** (`graphql.max_query_depth` default 15, `graphql.max_query_complexity` default 200, `0` disables) — see `GraphQLExecutor`; the provider passes them through and `GraphQLExecutorTest` covers exceeding them.
-- **Depends on the concrete framework `Router`** — `ez-php/contracts` has no routing contract, so this module's service provider imports `EzPhp\Routing\Router` (and hence requires `ez-php/framework`) to register the GraphQL endpoint. Deliberate exception to the "depend on contracts only" boundary; it goes away if a `RouterInterface` is ever added to `ez-php/contracts`.
 
 ## Testing approach
 

@@ -7,8 +7,8 @@ namespace EzPhp\GraphQL;
 use EzPhp\Cache\CacheInterface;
 use EzPhp\Contracts\ConfigInterface;
 use EzPhp\Contracts\ContainerInterface;
+use EzPhp\Contracts\RouterInterface;
 use EzPhp\Contracts\ServiceProvider;
-use EzPhp\Routing\Router;
 use GraphQL\Type\Schema;
 
 /**
@@ -111,11 +111,11 @@ final class GraphQLServiceProvider extends ServiceProvider
     {
         GraphQL::setExecutor($this->app->make(GraphQLExecutor::class));
 
-        if (!$this->app->has(Router::class)) {
+        if (!$this->app->has(RouterInterface::class)) {
             return;
         }
 
-        $router = $this->app->make(Router::class);
+        $router = $this->app->make(RouterInterface::class);
 
         $endpoint = '/graphql';
 
