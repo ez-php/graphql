@@ -280,6 +280,8 @@ src/
 
 tests/
 ├── TestCase.php                    — plain PHPUnit base (identical in every package)
+├── GraphQLServiceProviderTest.php  — Smoke test: GraphQLServiceProvider registers and boots its bindings in a minimal container context (with a Schema seeded) without error
+├── GraphQLPersistedQueryTest.php  — Automatic Persisted Queries: the store, the controller protocol and the provider wiring
 ├── GraphQLTestCase.php             — abstract base; makeHelloSchema() factory for a reusable test schema
 ├── DataLoaderRegistryTest.php      — registry tests: get/has/dispatchAll/clear, shared-loader identity across "resolvers"
 ├── GraphQLTest.php                 — facade tests: delegation, fail-fast, reset
