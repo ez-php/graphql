@@ -129,7 +129,7 @@ final class GraphQLExecutor
 
         return array_map(
             fn (\Throwable $error): array => FormattedError::createFromException($error, $this->debugFlag()),
-            array_values($errors),
+            $errors,
         );
     }
 
