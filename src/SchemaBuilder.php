@@ -30,6 +30,10 @@ use GraphQL\Type\SchemaConfig;
  *       ])
  *       ->build();
  *
+ * `subscription()` defines the Subscription root type. This module only puts it
+ * in the schema — delivering subscription events over a persistent connection
+ * is `ez-php/graphql-subscriptions`' job.
+ *
  * For advanced schemas, construct webonyx's Schema directly and bind it in
  * your service provider without using this builder.
  *
@@ -42,6 +46,9 @@ final class SchemaBuilder
 
     /** @var array<string, mixed>|null */
     private ?array $mutationFields = null;
+
+    /** @var array<string, mixed>|null */
+    private ?array $subscriptionFields = null;
 
     /**
      * Create a new builder instance.
@@ -78,6 +85,19 @@ final class SchemaBuilder
     }
 
     /**
+     * Define the Subscription type fields.
+     *
+     * @param array<string, mixed> $fields Field definitions accepted by webonyx ObjectType.
+     */
+    public function subscription(array $fields): self
+    {
+        $clone = clone $this;
+        $clone->subscriptionFields = $fields;
+
+        return $clone;
+    }
+
+    /**
      * Build and return the webonyx Schema.
      *
      * @throws SchemaException When no query fields have been defined.
@@ -99,6 +119,13 @@ final class SchemaBuilder
             $config->setMutation(new ObjectType([
                 'name' => 'Mutation',
                 'fields' => $this->mutationFields,
+            ]));
+        }
+
+        if ($this->subscriptionFields !== null) {
+            $config->setSubscription(new ObjectType([
+                'name' => 'Subscription',
+                'fields' => $this->subscriptionFields,
             ]));
         }
 

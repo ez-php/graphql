@@ -152,7 +152,7 @@ php make_module.php <name> --description="..." --services=mysql,redis --extensio
 `<name>` is the kebab-case package name; the namespace is derived as
 `EzPhp\<PascalCase>` (each `-`-separated word upper-cased) unless `--namespace=`
 overrides it. Existing exceptions the guess gets wrong: `bignum` → `BigNum`,
-`dataloader` → `DataLoader`, `dotenv` → `Env`, `graphql` → `GraphQL`, `oauth` → `OAuth`,
+`dataloader` → `DataLoader`, `dotenv` → `Env`, `graphql` → `GraphQL`, `graphql-subscriptions` → `GraphQLSubscriptions`, `oauth` → `OAuth`,
 `opcache` → `OPCache`, `openapi` → `OpenApi`, `swagger-ui` → `SwaggerUI`, `webauthn` → `WebAuthn` and
 `websocket` → `WebSocket`; `websocket-client` → `WebsocketClient`, `websocket-tls` → `WebsocketTls`,
 `webauthn-metadata` → `WebauthnMetadata` and `metrics-statsd` → `MetricsStatsd` are
@@ -271,9 +271,9 @@ src/
 ├── GraphQL.php                     — static facade: execute(), setExecutor(), resetExecutor()
 ├── GraphQLController.php           — invokable HTTP handler for POST /graphql; optional Automatic Persisted Queries protocol
 ├── PersistedQueryStore.php         — APQ store over ez-php/cache (soft dependency): find()/register()/matches(), 64 KiB cap
-├── GraphQLExecutor.php             — wraps webonyx execution; handles debug mode and PHP-level exceptions
+├── GraphQLExecutor.php             — wraps webonyx execution; handles debug mode and PHP-level exceptions; validate() without executing
 ├── GraphQLServiceProvider.php      — binds executor, registers POST /graphql route
-├── SchemaBuilder.php               — fluent builder for webonyx Schema (query + mutation)
+├── SchemaBuilder.php               — fluent builder for webonyx Schema (query + mutation + subscription)
 ├── SchemaException.php             — thrown when build() is called without query fields
 └── DataLoaderRegistry.php          — per-request keyed registry of ez-php/dataloader DataLoader instances
 
@@ -293,7 +293,7 @@ tests/
 
 ### SchemaBuilder (`src/SchemaBuilder.php`)
 
-Fluent, immutable builder for webonyx `Schema`. Clone-based withers (`query()`, `mutation()`) ensure that sharing a base builder does not cause cross-test contamination.
+Fluent, immutable builder for webonyx `Schema`. Clone-based withers (`query()`, `mutation()`, `subscription()`) ensure that sharing a base builder does not cause cross-test contamination.
 
 `build()` wraps the provided field maps in `ObjectType('Query', ...)` and `ObjectType('Mutation', ...)`, then constructs a `SchemaConfig`-based `Schema`. Only the `query` type is mandatory — calling `build()` without `query()` throws `SchemaException`.
 
@@ -313,6 +313,10 @@ Debug mode (`$debug = true`) passes `DebugFlag::INCLUDE_DEBUG_MESSAGE | DebugFla
 GraphQL-level errors (invalid field names, failed type coercions) are handled natively by webonyx — they appear in `$result->errors` and are never rethrown.
 
 `execute()`'s optional `mixed $context = null` parameter (added alongside `DataLoaderRegistry`) is passed straight through as webonyx's per-request `$contextValue`, reaching every resolver as their third argument — e.g. a `DataLoaderRegistry` constructed fresh per request. `GraphQLExecutor` itself has no opinion on what `$context` is; it is purely a passthrough.
+
+`execute()`'s optional `mixed $rootValue = null` is passed through the same way as webonyx's root value — the first argument of root-field resolvers. `ez-php/graphql-subscriptions` passes each broadcast event's payload here when it re-executes a subscription document.
+
+`validate(string $query): list<array>` parses and validates a document with the same rule set as `execute()` (all webonyx defaults plus the depth/complexity limits) without executing it, returning formatted errors (empty = valid). Syntax errors are returned, not thrown. It exists so a subscription can be rejected once at subscribe time rather than on every event.
 
 ---
 
@@ -384,7 +388,7 @@ All test classes declare `#[CoversClass]` and `#[UsesClass]` attributes for stri
 ## What does not belong in this module
 
 - **Schema definition DSL / annotations** — use webonyx's API directly; annotation magic is not in scope.
-- **GraphQL subscriptions** — subscriptions require a persistent connection layer (WebSocket/SSE); use `ez-php/websocket` and `ez-php/broadcast` for real-time features.
+- **GraphQL subscription delivery** — the `Subscription` root type is defined here (`SchemaBuilder::subscription()`), but the persistent-connection protocol (graphql-transport-ws over `ez-php/websocket`, fed by `ez-php/broadcast`) lives in `ez-php/graphql-subscriptions`.
 - **Pre-registered / allow-list persisted queries** (build-time manifests, rejecting unknown queries) — application concern. Only *automatic* persisted queries (client-registered, hash → text cache) live here.
 - **Authentication / authorisation guards on resolvers** — use context injection via webonyx's context parameter and application-level auth logic.
 - **Rate limiting on the GraphQL endpoint** — apply `ez-php/rate-limiter`'s `ThrottleMiddleware` to the `/graphql` route.

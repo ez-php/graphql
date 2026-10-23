@@ -237,4 +237,61 @@ final class GraphQLExecutorTest extends GraphQLTestCase
             ]),
         ]);
     }
+
+    public function testExecutePassesRootValueToRootResolvers(): void
+    {
+        $executor = new GraphQLExecutor(new \GraphQL\Type\Schema([
+            'query' => new \GraphQL\Type\Definition\ObjectType([
+                'name' => 'Query',
+                'fields' => [
+                    'fromRoot' => [
+                        'type' => \GraphQL\Type\Definition\Type::string(),
+                        'resolve' => fn (mixed $root): mixed => $root,
+                    ],
+                ],
+            ]),
+        ]));
+
+        self::assertSame(['data' => ['fromRoot' => 'payload']], $executor->execute('{ fromRoot }', rootValue: 'payload'));
+        self::assertSame(['data' => ['fromRoot' => null]], $executor->execute('{ fromRoot }'));
+    }
+
+    public function testValidateReturnsNoErrorsForValidDocument(): void
+    {
+        $executor = new GraphQLExecutor($this->makeHelloSchema());
+
+        self::assertSame([], $executor->validate('{ hello }'));
+    }
+
+    public function testValidateReportsUnknownFieldWithoutExecuting(): void
+    {
+        $executor = new GraphQLExecutor($this->makeHelloSchema());
+
+        $errors = $executor->validate('{ nonexistent }');
+
+        self::assertCount(1, $errors);
+        self::assertIsString($errors[0]['message']);
+        self::assertStringContainsString('nonexistent', $errors[0]['message']);
+    }
+
+    public function testValidateReportsSyntaxErrors(): void
+    {
+        $executor = new GraphQLExecutor($this->makeHelloSchema());
+
+        $errors = $executor->validate('{ hello');
+
+        self::assertCount(1, $errors);
+        self::assertIsString($errors[0]['message']);
+        self::assertStringContainsString('Syntax Error', $errors[0]['message']);
+    }
+
+    public function testValidateAppliesDepthLimit(): void
+    {
+        $limited = new GraphQLExecutor($this->makeNestedSchema(), maxQueryDepth: 2);
+        $unlimited = new GraphQLExecutor($this->makeNestedSchema(), maxQueryDepth: 0, maxQueryComplexity: 0);
+        $deep = '{ root { child { child { child { value } } } } }';
+
+        self::assertNotEmpty($limited->validate($deep));
+        self::assertSame([], $unlimited->validate($deep));
+    }
 }

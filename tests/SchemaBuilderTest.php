@@ -79,4 +79,34 @@ final class SchemaBuilderTest extends GraphQLTestCase
         $this->expectException(SchemaException::class);
         $base->build();
     }
+
+    public function testSubscriptionIsIncludedWhenDefined(): void
+    {
+        $schema = SchemaBuilder::create()
+            ->query(['noop' => ['type' => Type::string(), 'resolve' => fn (): string => 'ok']])
+            ->subscription([
+                'orderShipped' => [
+                    'type' => Type::string(),
+                    'resolve' => fn (mixed $root): mixed => is_array($root) ? ($root['id'] ?? null) : null,
+                ],
+            ])
+            ->build();
+
+        $subscriptionType = $schema->getSubscriptionType();
+        self::assertNotNull($subscriptionType);
+        self::assertSame('Subscription', $subscriptionType->name);
+
+        $result = \GraphQL\GraphQL::executeQuery($schema, 'subscription { orderShipped }', ['id' => '42'])->toArray();
+
+        self::assertSame(['data' => ['orderShipped' => '42']], $result);
+    }
+
+    public function testSubscriptionIsAbsentWhenNotDefined(): void
+    {
+        $schema = SchemaBuilder::create()
+            ->query(['noop' => ['type' => Type::string(), 'resolve' => fn (): string => 'ok']])
+            ->build();
+
+        self::assertNull($schema->getSubscriptionType());
+    }
 }

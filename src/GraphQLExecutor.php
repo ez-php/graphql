@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace EzPhp\GraphQL;
 
 use GraphQL\Error\DebugFlag;
+use GraphQL\Error\FormattedError;
 use GraphQL\GraphQL as WebonixGraphQL;
+use GraphQL\Language\Parser;
 use GraphQL\Type\Schema;
 use GraphQL\Validator\DocumentValidator;
 use GraphQL\Validator\Rules\QueryComplexity;
@@ -76,16 +78,19 @@ final class GraphQLExecutor
      *                                             context to every resolver (third resolver argument) —
      *                                             e.g. an `EzPhp\GraphQL\DataLoaderRegistry` constructed
      *                                             fresh for this request. `null` by default.
+     * @param mixed                $rootValue     Optional value passed to the root fields' resolvers as their
+     *                                             first argument — e.g. the event payload a subscription
+     *                                             field resolves from. `null` by default.
      *
      * @return array<string, mixed>
      */
-    public function execute(string $query, array $variables = [], ?string $operationName = null, mixed $context = null): array
+    public function execute(string $query, array $variables = [], ?string $operationName = null, mixed $context = null, mixed $rootValue = null): array
     {
         try {
             $result = WebonixGraphQL::executeQuery(
                 $this->schema,
                 $query,
-                null,
+                $rootValue,
                 $context,
                 $variables !== [] ? $variables : null,
                 $operationName,
@@ -93,11 +98,7 @@ final class GraphQLExecutor
                 $this->validationRules(),
             );
 
-            $debugFlag = $this->debug
-                ? DebugFlag::INCLUDE_DEBUG_MESSAGE | DebugFlag::INCLUDE_TRACE
-                : DebugFlag::NONE;
-
-            return $result->toArray($debugFlag);
+            return $result->toArray($this->debugFlag());
         } catch (\Throwable $e) {
             return [
                 'errors' => [
@@ -105,6 +106,41 @@ final class GraphQLExecutor
                 ],
             ];
         }
+    }
+
+    /**
+     * Parse and validate a document against the schema — including the depth and
+     * complexity limits — without executing it.
+     *
+     * Lets callers reject an invalid document once up front instead of on every
+     * execution (e.g. a subscription that is executed again for each event).
+     *
+     * @param string $query GraphQL document.
+     *
+     * @return list<array<string, mixed>> Formatted GraphQL errors; empty when the document is valid.
+     */
+    public function validate(string $query): array
+    {
+        try {
+            $errors = DocumentValidator::validate($this->schema, Parser::parse($query), $this->validationRules());
+        } catch (\GraphQL\Error\SyntaxError $e) {
+            $errors = [$e];
+        }
+
+        return array_map(
+            fn (\Throwable $error): array => FormattedError::createFromException($error, $this->debugFlag()),
+            array_values($errors),
+        );
+    }
+
+    /**
+     * @return int webonyx DebugFlag bits for the configured debug mode.
+     */
+    private function debugFlag(): int
+    {
+        return $this->debug
+            ? DebugFlag::INCLUDE_DEBUG_MESSAGE | DebugFlag::INCLUDE_TRACE
+            : DebugFlag::NONE;
     }
 
     /**
