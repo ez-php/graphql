@@ -287,7 +287,10 @@ tests/
 ├── GraphQLTest.php                 — facade tests: delegation, fail-fast, reset
 ├── GraphQLExecutorTest.php         — execution tests: valid queries, variables, errors, debug mode, resolver exception
 ├── GraphQLControllerTest.php       — HTTP layer tests: 200/400 status, variables, operationName, content-type
-└── SchemaBuilderTest.php           — builder tests: query-only, query+mutation, immutability, missing query guard
+├── SchemaBuilderTest.php           — builder tests: query-only, query+mutation, immutability, missing query guard
+└── Support/
+    ├── FakeConfig.php               — minimal ConfigInterface stub for service provider tests
+    └── FakeContainer.php            — minimal ContainerInterface stub for service provider tests
 ```
 
 ---
